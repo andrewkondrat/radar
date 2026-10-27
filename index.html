@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Room radar Bluetooth</title>
+<script>
+/* Runs first. If the main script at the bottom never starts, the page
+   arrived incomplete, and this says so instead of leaving a blank status. */
+window.onerror = function (m, u, line) {
+  var s = document.getElementById("stat");
+  if (s) { s.textContent = "Page problem: " + m + " (line " + line + ")"; s.className = "stat bad"; }
+  return false;
+};
+setTimeout(function () {
+  var s = document.getElementById("stat");
+  if (s && s.textContent === "Loading page") {
+    s.textContent = document.getElementById("pageEnd")
+      ? "Page loaded but did not start. Reload the page."
+      : "Page arrived incomplete. Reload the page.";
+    s.className = "stat bad";
+  }
+}, 4000);
+</script>
+<style>
+
+  :root { color-scheme: dark; --bg:#07110e; --card:#0d1a14; --track:#1b2a23; --ink:#f3fff7; --dim:#8fa598; --off:#55655c; --on:#7dffb0; --warn:#ffc14a; --bad:#ff8f8f; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { touch-action: manipulation; }
+  html, body { margin: 0; background: #07110e; color: #f3fff7; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; padding: 0 16px 24px; }
+  .wrap { max-width: 480px; margin: 0 auto; }
+  .one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .top { position: sticky; top: 0; z-index: 5; background: #07110e; padding: 10px 0; }
+  header { display: flex; align-items: center; justify-content: space-between; height: 22px; }
+  h1 { font-size: 13px; letter-spacing: 0.16em; font-weight: 650; margin: 0; color: #8fa598; }
+  .live { display: flex; align-items: center; gap: 7px; color: #8fa598; font-size: 12px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #55655c; }
+  .dot.on { background: #7dffb0; }
+
+  .hero { margin-top: 8px; height: 104px; border-radius: 18px; background: #0d1a14; display: flex; flex-direction: column; justify-content: center; align-items: center; border: 2px solid transparent; }
+  .hero.on { background: #124a30; }
+  .hero.chk { border-color: #6b5a24; }
+  .hero.err { border-color: #7a3030; }
+  .big { font-size: 44px; line-height: 1; font-weight: 700; height: 46px; width: 100%; text-align: center; font-variant-numeric: tabular-nums; }
+  .stat { font-size: 15px; line-height: 1.25; height: 38px; margin-top: 6px; width: 94%; text-align: center; color: #8fa598; overflow: hidden; }
+  .hero.on .stat { color: #f3fff7; }
+  .stat.bad { color: #ff8f8f; }
+
+  .gauges { margin-top: 10px; background: #0d1a14; border-radius: 18px; padding: 8px 12px; }
+  .g { display: flex; align-items: center; gap: 10px; height: 28px; }
+  .gl { width: 66px; font-size: 13px; color: #8fa598; }
+  .bar { position: relative; flex: 1; height: 10px; border-radius: 5px; background: #1b2a23; }
+  .bar i { position: absolute; top: 0; bottom: 0; display: block; border-radius: 5px; }
+  .bar .win { background: rgba(125,255,176,0.16); box-shadow: inset 0 0 0 1px rgba(125,255,176,0.35); }
+  .bar .fill { left: 0; background: #55655c; }
+  .bar .tick { width: 2px; top: -4px; bottom: -4px; background: #8fa598; border-radius: 1px; }
+  .bar .mark { width: 14px; height: 14px; top: -2px; margin-left: -7px; border-radius: 50%; background: #55655c; }
+  .bar.pass .fill, .bar.pass .mark { background: #7dffb0; }
+  .gv { width: 84px; text-align: right; font-size: 13px; color: #8fa598; font-variant-numeric: tabular-nums; }
+  .gv.pass { color: #7dffb0; }
+
+  h2 { font-size: 12px; letter-spacing: 0.14em; color: #8fa598; font-weight: 650; margin: 18px 0 2px; text-transform: uppercase; }
+  .s { padding: 10px 0 2px; }
+  .sh { display: flex; justify-content: space-between; align-items: baseline; }
+  .sh span { font-size: 16px; }
+  .sh b { font-size: 18px; font-variant-numeric: tabular-nums; }
+  .tip { margin: 0; font-size: 12px; color: #8fa598; height: 16px; }
+  input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 44px; background: transparent; margin: 2px 0 0; touch-action: pan-y; }
+  input[type="range"]::-webkit-slider-runnable-track { height: 8px; border-radius: 4px; background: #1b2a23; }
+  input[type="range"]::-moz-range-track { height: 8px; border-radius: 4px; background: #1b2a23; }
+  input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 32px; height: 32px; margin-top: -12px; border-radius: 50%; background: #7dffb0; border: 4px solid #0b2a1c; }
+  input[type="range"]::-moz-range-thumb { width: 28px; height: 28px; border-radius: 50%; background: #7dffb0; border: 4px solid #0b2a1c; }
+
+  button { margin-top: 10px; width: 100%; padding: 13px; border-radius: 12px; border: 0; background: #143528; color: #b6ffcf; font-weight: 700; font-size: 16px; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+  button:active { filter: brightness(1.35); }
+  button.alt { background: #2a2412; color: #ffc14a; }
+  .seg { display: flex; gap: 8px; margin-top: 10px; }
+  .seg button { margin: 0; flex: 1; background: #11241b; color: #8fa598; }
+  .seg button.on { background: #7dffb0; color: #07110e; }
+  #mode-note { height: 32px; margin-top: 8px; }
+  .g.off { display: none; }
+  .gauges { min-height: 156px; }
+  #p-note { display: none; margin: 10px 0 0; }
+  .gauges.pm #p-note { display: block; }
+  .tog { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 0; }
+  .tog span { font-size: 16px; }
+  .tog button { width: 84px; margin: 0; }
+  .tog button.on { background: #7dffb0; color: #07110e; }
+  details { margin-top: 14px; background: #0d1a14; border-radius: 16px; padding: 12px 14px 14px; }
+  summary { font-weight: 650; cursor: pointer; -webkit-user-select: none; user-select: none; }
+  .ck { margin: 8px 0 0; font-size: 14px; }
+  .ok { color: #7dffb0; } .warn { color: #ffc14a; } .bad { color: #ff8f8f; }
+  .note { margin: 6px 0 0; font-size: 12px; color: #8fa598; }
+  .net { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 8px; padding: 11px 12px; border-radius: 10px; border: 0; background: #11241b; color: #f3fff7; font-size: 15px; text-align: left; }
+  .net .bars { width: 26px; color: #7dffb0; font-size: 12px; }
+  .net .nm { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .net.off { color: #8fa598; }
+  .net.off .bars { color: #55655c; }
+  label { display: block; color: #8fa598; font-size: 13px; margin-top: 12px; }
+  input[type="text"], input[type="password"] { width: 100%; margin-top: 6px; padding: 12px; border-radius: 12px; border: 1px solid #2d4a3a; background: #07110e; color: #f3fff7; font-size: 16px; }
+
+  @media (min-width: 820px) {
+    .wrap { max-width: 1000px; display: grid; grid-template-columns: 440px 1fr; gap: 32px; align-items: start; }
+    .top { padding-top: 20px; }
+    .side { padding-top: 12px; }
+  }
+
+  .gate { margin-top: 10px; padding: 14px; border-radius: 18px; background: #0d1a14; }
+  .gate p { margin: 0; font-size: 14px; line-height: 1.4; color: #b8cbbf; }
+  .gate button { margin-top: 12px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <header>
+      <h1>ROOM RADAR</h1>
+      <div class="live"><span id="dot" class="dot"></span><span id="link">not connected</span></div>
+    </header>
+    <div id="gate" class="gate"><p id="gate-msg"></p><button type="button" id="connect-btn">Connect by Bluetooth</button></div>
+    <div id="hero" class="hero">
+      <div id="big" class="big one">...</div>
+      <div id="stat" class="stat">Loading page</div>
+    </div>
+    <div class="gauges" id="gauges">
+      <div class="g" id="g-dist"><span class="gl">Distance</span><div class="bar" id="b-dist"><i class="win"></i><i class="mark"></i></div><span class="gv one" id="v-dist">-</span></div>
+      <div class="g" id="g-spd"><span class="gl">Speed</span><div class="bar" id="b-spd"><i class="win"></i><i class="mark"></i></div><span class="gv one" id="v-spd">-</span></div>
+      <div class="g" id="g-mov"><span class="gl">Travel</span><div class="bar" id="b-mov"><i class="fill"></i><i class="tick"></i></div><span class="gv one" id="v-mov">-</span></div>
+      <div class="g" id="g-cnf"><span class="gl" id="l-cnf">Confirm</span><div class="bar" id="b-cnf"><i class="fill"></i></div><span class="gv one" id="v-cnf">-</span></div>
+      <div class="g" id="g-echo"><span class="gl">Echo</span><div class="bar" id="b-echo"><i class="fill"></i><i class="tick"></i></div><span class="gv one" id="v-echo">-</span></div>
+      <p class="note" id="p-note">Presence mode gives yes or no. The sensor decides, using the sensitivity and delay below. The radar sees through thin walls and doors. Set Farthest just past your room, so the next room does not count.</p>
+    </div>
+  </div>
+
+  <div class="side">
+    <h2>Quick</h2>
+    <div class="seg"><button type="button" id="mode-m">Movement</button><button type="button" id="mode-p">Presence</button></div>
+    <p class="note" id="mode-note">Finds someone moving, and how far.</p>
+    <div id="quick"></div>
+    <button type="button" id="reset-btn">Reset to defaults</button>
+
+    <details>
+      <summary>More settings</summary>
+      <div id="rare"></div>
+      <div id="pd-row">
+        <div class="tog"><span>Try distance</span><button type="button" id="pd-btn">Off</button></div>
+        <p class="note">Experimental, Presence mode only. Asks the sensor for target data. May show nothing. To undo, unplug the sensor's power.</p>
+      </div>
+      <button type="button" id="restart-btn" class="alt">Restart board</button>
+    </details>
+
+    <details>
+      <summary>Sensor check</summary>
+      <p id="c-model" class="ck">Checking</p>
+      <p id="c-set" class="ck"></p>
+      <p id="c-trace" class="ck"></p>
+      <p id="c-read" class="ck"></p>
+      <p id="c-rate" class="ck"></p>
+      <p id="c-other" class="ck"></p>
+      <p id="c-gap" class="ck"></p>
+      <p id="c-build" class="ck"></p>
+      <p id="c-ip" class="ck"></p>
+      <p class="note">Distance is a guide. DFRobot says it is not calibrated.</p>
+    </details>
+
+    <details>
+      <summary>Wi-Fi</summary>
+      <p class="note" id="wifi-state">Waiting for the first reading.</p>
+      <p class="note">Wi-Fi names can only be changed on the radar's own page, http://radar.local, while you are on Wi-Fi.</p>
+    </details>
+  </div>
+</div>
+
+<script>
+
+/* Same page as the radar's own, but it reads the radar over Bluetooth.
+   If anything does go wrong, the message is shown on screen, not hidden. */
+var data = null, fails = 0, lastErr = "", smoothM = null, netSig = "", sensorMax = 25, dragging = false;
+var knobs = { minM: 0.6, maxM: 10, minSpd: 10, maxSpd: 150, travel: 15, confirm: 0.5, hold: 1.0, thr: 5, minE: 0, presence: false, hs: 7, ts: 5, cp: 0.5, cl: 15, pd: false, ready: false };
+
+function el(id) { return document.getElementById(id); }
+function say(msg, bad) {
+  var s = el("stat");
+  if (!s) return;
+  s.textContent = msg;
+  s.className = bad ? "stat bad" : "stat";
+}
+window.onerror = function (m, u, line) { say("Page problem: " + m + " (line " + line + ")", true); return false; };
+
+var ROWS = [
+  { box: "quick", k: "maxM",    l: "Farthest",      u: "m",    s: 0.5,  lo: 2.5, hi: 25,    d: 1, tip: "Beyond this is ignored. Presence: just past your room" },
+  { box: "quick", k: "minM",    l: "Nearest",       u: "m",    s: 0.1,  lo: 0.6, hi: 5,     d: 1, tip: "Ignored. The sensor measures well from 1.2 m" },
+  { box: "quick", only: "m", k: "travel",  l: "Must travel",   u: "cm",   s: 1,    lo: 0,   hi: 80,    d: 0, tip: "Fans and plants swing back. People go one way." },
+  { box: "quick", only: "m", k: "confirm", l: "Confirm time",  u: "s",    s: 0.1,  lo: 0.2, hi: 3,     d: 1, tip: "Longer means fewer false alarms, slower reaction" },
+  { box: "quick", only: "p", k: "ts",       l: "Notice sensitivity", u: "", s: 1, lo: 0, hi: 9, d: 0, tip: "How easily it first notices someone. 2 to 6 is advised" },
+  { box: "quick", only: "p", k: "hs",       l: "Hold sensitivity",   u: "", s: 1, lo: 0, hi: 9, d: 0, tip: "How well it keeps someone who sits still" },
+  { box: "quick", only: "p", k: "cp",       l: "Confirm delay",      u: "s", s: 0.1, lo: 0, hi: 5, d: 1, tip: "Longer means fewer false alarms, slower reaction" },
+  { box: "quick", only: "p", k: "cl",       l: "Stay on after leaving", u: "s", s: 1, lo: 1, hi: 120, d: 0, tip: "Waits this long before it says nobody" },
+  { box: "rare",  only: "m", k: "minSpd",  l: "Slowest",       u: "cm/s", s: 5,    lo: 5,   hi: 100,   d: 0, tip: "Slower than this is ignored" },
+  { box: "rare",  only: "m", k: "maxSpd",  l: "Fastest",       u: "cm/s", s: 25,   lo: 100, hi: 1000,  d: 0, tip: "Faster is ignored. Fans read 150 to 330, walking under 70" },
+  { box: "rare",  only: "m", k: "hold",    l: "Stay on",       u: "s",    s: 0.1,  lo: 0.5, hi: 1.5,   d: 1, tip: "Keeps showing person after movement stops" },
+  { box: "rare",  only: "m", k: "thr",     l: "Sensor filter", u: "",     s: 1,    lo: 1,   hi: 20,    d: 0, tip: "Sensor's own threshold. Factory 5. Higher is stricter" },
+  { box: "rare",  only: "m", k: "minE",    l: "Min echo",      u: "",     s: 1000, lo: 0,   hi: 60000, d: 0, tip: "0 means off. Far people give smaller echoes" }
+];
+function topOf(row) { return row.k === "maxM" ? sensorMax : row.hi; }
+function fmt(row, v) { var n = Number(v).toFixed(row.d); return row.u ? n + " " + row.u : n; }
+
+function buildRows() {
+  for (var i = 0; i < ROWS.length; i++) {
+    (function (row) {
+      var box = el(row.box);
+      var div = document.createElement("div");
+      div.className = "s";
+      div.innerHTML = '<div class="sh"><span>' + row.l + '</span><b id="sv-' + row.k + '"></b></div>' +
+        '<input type="range" id="r-' + row.k + '"><p class="tip one">' + row.tip + '</p>';
+      row.div = div;
+      box.appendChild(div);
+      var r = div.getElementsByTagName("input")[0];
+      r.min = row.lo; r.max = topOf(row); r.step = row.s; r.value = knobs[row.k];
+      r.onmousedown = function () { dragging = true; };
+      r.ontouchstart = function () { dragging = true; };
+      r.oninput = function () {
+        knobs.ready = true;
+        knobs[row.k] = Number(Number(r.value).toFixed(row.d));
+        el("sv-" + row.k).textContent = fmt(row, knobs[row.k]);
+        drawGauges();
+      };
+      r.onchange = function () { dragging = false; r.oninput(); postTune(row.k); };
+    })(ROWS[i]);
+  }
+}
+function showKnobs() {
+  for (var i = 0; i < ROWS.length; i++) {
+    var row = ROWS[i], r = el("r-" + row.k);
+    if (!r) continue;
+    r.max = topOf(row);
+    if (!dragging) r.value = knobs[row.k];
+    el("sv-" + row.k).textContent = fmt(row, knobs[row.k]);
+  }
+  applyMode();
+}
+function applyMode() {
+  var which = knobs.presence ? "p" : "m";
+  for (var i = 0; i < ROWS.length; i++) {
+    if (ROWS[i].div) ROWS[i].div.style.display = (ROWS[i].only && ROWS[i].only !== which) ? "none" : "";
+  }
+  el("pd-row").style.display = knobs.presence ? "" : "none";
+  el("pd-btn").textContent = knobs.pd ? "On" : "Off";
+  el("pd-btn").className = knobs.pd ? "on" : "";
+  el("mode-m").className = knobs.presence ? "" : "on";
+  el("mode-p").className = knobs.presence ? "on" : "";
+  el("mode-note").textContent = knobs.presence ? "Finds someone there, even sitting still. No distance."
+                                               : "Finds someone moving, and how far.";
+}
+function pullKnobs() {
+  if (knobs.ready || !data || !data.t || new Date().getTime() < ble.pullAt) return;
+  var t = data.t;
+  knobs = { minM: t.minM, maxM: t.maxM, minSpd: t.minSpd, maxSpd: t.maxSpd, travel: t.travel,
+            confirm: t.confirm, hold: t.hold, thr: t.thr, minE: t.minE, presence: !!t.presence,
+            hs: t.hs, ts: t.ts, cp: t.cp, cl: t.cl, pd: !!t.pdist, ready: true };
+  showKnobs();
+}
+/* ---- Bluetooth link ---- */
+var UUID_SVC = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+var UUID_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";  /* we write commands here */
+var UUID_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";  /* the radar sends a status line from here */
+var ble = { pullAt: 0, dev: null, rx: null, tx: null, up: false, want: false, connecting: false, buf: "", q: [], writing: false, tries: 0, timer: 0, firstAt: 0 };
+var lastLineAt = 0;
+
+function enc(text) {
+  var a = new Uint8Array(text.length);
+  for (var i = 0; i < text.length; i++) a[i] = text.charCodeAt(i) & 127;
+  return a;
+}
+function pump() {
+  if (ble.writing || !ble.up || !ble.q.length) return;
+  var line = ble.q.shift();
+  var parts = [];
+  for (var i = 0; i < line.length; i += 20) parts.push(line.substr(i, 20));
+  ble.writing = true;
+  var p = Promise.resolve();
+  parts.forEach(function (c) {
+    p = p.then(function () {
+      return ble.rx.writeValueWithResponse ? ble.rx.writeValueWithResponse(enc(c)) : ble.rx.writeValue(enc(c));
+    });
+  });
+  p.then(function () { ble.writing = false; pump(); },
+         function (e) { ble.writing = false; lastErr = "could not send: " + (e && e.message ? e.message : e); fails = 3; render(); pump(); });
+}
+function sendLine(text) { ble.q.push(text + "\n"); pump(); }
+function postTune(only) {
+  var all = ["minM", "maxM", "minSpd", "maxSpd", "travel", "confirm", "hold", "thr", "minE", "hs", "ts", "cp", "cl", "presence", "pdist"];
+  var keys = only ? [only] : all, parts = [];
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i], v;
+    if (k === "presence") v = knobs.presence ? "1" : "0";
+    else if (k === "pdist") v = knobs.pd ? "1" : "0";
+    else v = knobs[k];
+    parts.push(k + "=" + v);
+  }
+  sendLine("F " + parts.join("&"));
+}
+
+/* ---- live bars ---- */
+function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+function pct(x) { return (clamp01(x) * 100).toFixed(1) + "%"; }
+function barParts(id) {
+  var b = el(id), out = { b: b, win: null, fill: null, tick: null, mark: null };
+  var kids = b.getElementsByTagName("i");
+  for (var i = 0; i < kids.length; i++) {
+    var c = kids[i].className;
+    if (c === "win") out.win = kids[i];
+    else if (c === "fill") out.fill = kids[i];
+    else if (c === "tick") out.tick = kids[i];
+    else if (c === "mark") out.mark = kids[i];
+  }
+  return out;
+}
+function setWin(id, lo, hi, val, pass, has, scale, root) {
+  var p = barParts(id);
+  var map = function (v) { var f = Math.max(0, v) / scale; return root ? Math.sqrt(f) : f; };
+  p.win.style.left = pct(map(lo));
+  p.win.style.width = pct(map(hi) - map(lo));
+  p.mark.style.display = has ? "block" : "none";
+  if (has) p.mark.style.left = pct(map(val));
+  p.b.className = "bar" + (has && pass ? " pass" : "");
+}
+function setFill(id, frac, tickFrac, pass) {
+  var p = barParts(id);
+  p.fill.style.width = pct(frac);
+  if (p.tick) {
+    p.tick.style.display = (tickFrac === null) ? "none" : "block";
+    if (tickFrac !== null) p.tick.style.left = pct(tickFrac);
+  }
+  p.b.className = "bar" + (pass ? " pass" : "");
+}
+function setVal(id, text, pass) { var e = el(id); e.textContent = text; e.className = "gv one" + (pass ? " pass" : ""); }
+
+var gate = "";
+function drawGauges() {
+  var rows = ["g-dist", "g-spd", "g-mov", "g-echo"];
+  for (var q = 0; q < rows.length; q++) el(rows[q]).className = knobs.presence ? "g off" : "g";
+  el("l-cnf").textContent = knobs.presence ? "Presence" : "Confirm";
+  el("gauges").className = knobs.presence ? "gauges pm" : "gauges";
+  if (knobs.presence) {
+    var here = !!(data && data.present);
+    setFill("b-cnf", here ? 1 : 0, null, here);
+    setVal("v-cnf", data ? (here ? "yes" : "no") : "-", here);
+    gate = data && data.reason ? data.reason : "";
+    return;
+  }
+  var r = data ? data.raw : null;
+  var has = !!(r && r.n > 0 && r.age < 1500);
+  var m = has ? Number(r.m) : 0;
+  var cms = has ? Math.round(Math.abs(r.s) * 100) : 0;
+  var e = has ? Number(r.e) : 0;
+  var present = !!(data && data.present);
+
+  var dScale = Math.max(knobs.maxM * 1.25, 5);
+  var dPass = m >= knobs.minM && m <= knobs.maxM;
+  setWin("b-dist", knobs.minM, knobs.maxM, m, dPass, has, dScale, false);
+  setVal("v-dist", has ? m.toFixed(1) + " m" : "-", has && dPass);
+
+  var sScale = Math.max(knobs.maxSpd * 1.2, 200);
+  var sPass = cms >= knobs.minSpd && cms <= knobs.maxSpd;
+  setWin("b-spd", knobs.minSpd, knobs.maxSpd, cms, sPass, has, sScale, true);
+  setVal("v-spd", has ? cms + " cm/s" : "-", has && sPass);
+
+  var moved = data ? Number(data.moved || 0) : 0;
+  var mScale = Math.max(knobs.travel * 2.5, 20);
+  var steady = data && data.steady !== undefined ? Number(data.steady) : -1;
+  var swings = knobs.travel > 0 && !present && moved >= knobs.travel && steady >= 0 && steady < 75;
+  var mPass = knobs.travel === 0 || present || (moved >= knobs.travel && !swings);
+  setFill("b-mov", moved / mScale, knobs.travel > 0 ? knobs.travel / mScale : null, mPass && (moved > 0 || present));
+  var movTxt;
+  if (knobs.travel === 0) movTxt = "off";
+  else if (swings) movTxt = "swings";
+  else if (mPass && moved >= knobs.travel) movTxt = moved + " cm";
+  else if (data && data.wobble > knobs.travel && moved < knobs.travel) movTxt = "wobble";
+  else movTxt = moved + " / " + knobs.travel;
+  setVal("v-mov", movTxt, mPass && moved > 0);
+
+  var seen = data ? Number(data.seen || 0) : 0;
+  var need = data ? Number(data.need || 0) : 0;
+  var cPass = present || (need > 0 && seen >= need);
+  setFill("b-cnf", present ? 1 : (need > 0 ? seen / need : 0), null, cPass);
+  setVal("v-cnf", present ? "done" : (need > 0 ? seen + " / " + need : "-"), cPass);
+
+  var eScale = Math.max(knobs.minE * 2, 40000);
+  var ePass = e >= knobs.minE;
+  setFill("b-echo", has ? Math.sqrt(e / eScale) : 0, knobs.minE > 0 ? Math.sqrt(knobs.minE / eScale) : null, has && ePass);
+  setVal("v-echo", has ? String(e) : "-", has && ePass);
+
+  if (!has) gate = "Nothing moving in range";
+  else if (m < knobs.minM) gate = "Too close";
+  else if (m > knobs.maxM) gate = "Too far";
+  else if (cms > knobs.maxSpd) gate = "Too fast for a person";
+  else if (!ePass) gate = "Echo too weak";
+  else if (cms < knobs.minSpd) gate = "Too slow";
+  else if (swings && need > 0 && seen >= need) gate = "Swings back and forth";
+  else if (!mPass && need > 0 && seen >= need) gate = "Wobbles but does not travel";
+  else gate = "Confirming";
+}
+
+function wireProblem() {
+  var c = data ? data.chk : null;
+  if (!c) return "";
+  if (c.model === -1) return "Sensor ignores settings. Check the yellow wire.";
+  if (c.model === -2) return "Sensor refused its range. Restart the board.";
+  if (!(data.t && data.t.presence) && Number(c.rate) === 0 && data.uptime > 15000 && Number(c.since) > 6000) return "No readings. Check the green wire.";
+  return "";
+}
+function sensorCheck() {
+  var c = data.chk;
+  if (!c) return;
+  var m = el("c-model");
+  if (c.model === 25) { m.className = "ck ok"; m.textContent = "OK: 25 m model (SEN0609)"; }
+  else if (c.model === 12) { m.className = "ck warn"; m.textContent = "12 m model (SEN0610)"; }
+  else if (c.model === -1) { m.className = "ck bad"; m.textContent = "No answer to settings. Check yellow wire, sensor RX to XIAO D6."; }
+  else if (c.model === -2) { m.className = "ck bad"; m.textContent = "Range refused. Restart the board."; }
+  else { m.className = "ck"; m.textContent = "Checking"; }
+  var s = el("c-set");
+  var of = c.of || 4;
+  var took = Number(c.took) > 0 ? (", setup took " + (Number(c.took) / 1000).toFixed(1) + " s") : "";
+  var svTxt = c.saved === 1 ? ", saved in sensor" : (c.saved === 0 ? ", SAVE FAILED" : (c.saved === -2 ? ", not saved (distance test)" : (c.saved === 2 ? ", already saved" : "")));
+  if (c.wrote === 0) {
+    s.className = "ck ok";
+    s.textContent = "Sensor already held these settings, nothing to send" + took;
+  } else {
+    s.className = "ck " + (c.ok === of ? "ok" : "warn");
+    s.textContent = "Settings accepted " + c.ok + " of " + of + svTxt + took;
+  }
+  el("c-trace").textContent = c.trace ? ("Setup steps (ms): " + c.trace) : "";
+  var same = c.match === 1 ? " - matches" : (c.match === 0 ? " - DIFFERS" : "");
+  var pm = !!(data.t && data.t.presence);
+  var rgOk = /[0-9]/.test(c.range || "");
+  var rgTxt = rgOk ? ((c.range || "?") + " m, ") : "";
+  var rgNote = (pm && !rgOk) ? (", range cannot be read in this mode, last sent " + (c.sent && c.sent !== "none" ? (c.sent + " m") : "nothing yet")) : "";
+  el("c-read").textContent = pm
+    ? "Sensor holds: " + rgTxt + "sensitivity " + (c.thr || "?") + ", delays " + (c.micro || "?") + rgNote + same
+    : "Sensor holds: " + (c.range || "?") + " m, filter " + (c.thr || "?") + ", micro-motion " + (c.micro || "?") + same;
+  el("c-other").textContent = c.other ? ("Other data from sensor: " + c.other) : "";
+  var gp = el("c-gap"), gs = Number(c.gap) / 1000;
+  gp.className = "ck" + (Number(c.gap) > 500 ? " warn" : "");
+  gp.textContent = "Longest board pause: " + gs.toFixed(1) + " s (web " + (Number(c.gweb) / 1000).toFixed(1) +
+                   ", wifi " + (Number(c.gwifi) / 1000).toFixed(1) + ", log " + (Number(c.glog) / 1000).toFixed(1) + ")";
+  el("c-build").textContent = "Sketch build " + (c.build || "?") + ", bad readings thrown away: " + (c.junk || 0);
+  el("c-ip").textContent = "Bluetooth devices connected to the radar: " + (data.ble !== undefined ? data.ble : "?");
+  var hz = Number(c.rate), rr = el("c-rate");
+  if (pm) {
+    var got = (c.frame & 2) === 2;
+    rr.className = "ck" + (got ? "" : " warn");
+    rr.textContent = got ? "Presence data is arriving" : ((c.frame & 1) === 1 ? "Sensor still sends movement data" : "No presence data yet");
+  } else {
+    rr.className = "ck" + (hz > 0 ? "" : " warn");
+    rr.textContent = hz > 0 ? ("Readings: " + hz.toFixed(1) + " per second")
+                            : "No readings. Check green wire, sensor TX to XIAO D7.";
+  }
+}
+function render() {
+  el("dot").className = "dot" + (ble.up && fails < 3 ? " on" : "");
+  el("link").textContent = ble.up ? (fails > 2 ? "lost" : "Bluetooth live") : (ble.want ? "reconnecting" : "not connected");
+  if (data) {
+    el("wifi-state").textContent = data.wifi
+      ? ("The radar is on the Wi-Fi network " + (data.ssid || "?") + (data.ip ? (", address http://" + data.ip) : "") + ". Open that address on a device on the same Wi-Fi for the full page.")
+      : "The radar is not on a Wi-Fi network right now. Everything here works without one.";
+  }
+  var hero = el("hero"), big = el("big");
+  if (!data) {
+    big.textContent = "...";
+    hero.className = "hero" + (fails > 0 ? " err" : "");
+    say(fails > 0 ? ("Radar not answering: " + lastErr) : (ble.up ? "Connected, waiting for the first reading" : "Not connected yet"), fails > 0);
+    return;
+  }
+  if (data.t && data.t.sensorMax && data.t.sensorMax !== sensorMax) { sensorMax = data.t.sensorMax; showKnobs(); }
+  pullKnobs();
+  sensorCheck();
+  drawGauges();
+
+  if (data.chk && data.chk.busy) {
+    hero.className = "hero chk";
+    big.textContent = "...";
+    say("Sensor is applying your change. A few seconds.", false);
+    return;
+  }
+  var problem = fails > 2 ? ("Connection lost: " + lastErr) : wireProblem();
+  if (problem) {
+    hero.className = "hero err";
+    big.textContent = data.present ? "?" : "Clear";
+    say(problem, true);
+    return;
+  }
+  if (data.t && data.t.presence) {
+    smoothM = null;
+    if (data.present) {
+      hero.className = "hero on";
+      var pm2 = Number(data.m || 0);
+      big.textContent = pm2 > 0 ? (pm2.toFixed(1) + " m") : "Here";
+      say("Someone is here, moving or still", false);
+    } else {
+      hero.className = "hero";
+      big.textContent = "Clear";
+      say(gate || "Nobody detected", false);
+    }
+    return;
+  }
+  if (data.present) {
+    hero.className = "hero on";
+    smoothM = (smoothM === null) ? data.m : smoothM + (data.m - smoothM) * 0.35;
+    big.textContent = smoothM.toFixed(1) + " m";
+    var cms = Math.round(Math.abs(data.s) * 100);
+    var how = cms >= 50 ? "walking" : "moving";
+    var where = data.dir < 0 ? "coming closer" : (data.dir > 0 ? "going away" : "");
+    say(where ? ("Person " + how + ", " + where) : ("Person " + how), false);
+  } else {
+    smoothM = null;
+    hero.className = "hero" + (data.checking ? " chk" : "");
+    big.textContent = (data.raw && data.raw.age > 4000) ? "Wait" : "Clear";
+    say(gate, false);
+  }
+}
+
+function showGate(msg, label) {
+  var g = el("gate");
+  g.hidden = !msg;
+  el("gate-msg").textContent = msg || "";
+  var b = el("connect-btn");
+  b.hidden = !label;
+  if (label) b.textContent = label;
+}
+function whyNot() {
+  if (!navigator.bluetooth) return "This browser cannot use Bluetooth pages. On a computer or an Android phone, open this file in Chrome or Edge. On an iPhone, use the free Bluefy app.";
+  if (window.isSecureContext === false) return "Bluetooth only works on a secure page. Open this file from your computer, or put it on an https address.";
+  return "";
+}
+function explain(e) {
+  var m = e && e.message ? e.message : String(e);
+  if (e && e.name === "NotFoundError") return "Nothing was chosen. Press the button and pick Room-Radar from the list. If it is not in the list, check the radar has power and is close.";
+  if (e && e.name === "SecurityError") return "This page is not allowed to use Bluetooth here (" + m + "). Open it as a file in Chrome or Edge, or in the Bluefy app.";
+  return "Could not connect: " + m;
+}
+function onChunk(ev) {
+  var v = ev.target.value, s = "";
+  for (var i = 0; i < v.byteLength; i++) s += String.fromCharCode(v.getUint8(i));
+  ble.buf += s;
+  var at;
+  while ((at = ble.buf.indexOf("\n")) >= 0) {
+    var line = ble.buf.slice(0, at).replace(/\r$/, "");
+    ble.buf = ble.buf.slice(at + 1);
+    if (line.charAt(0) !== "{") continue;
+    var obj = null;
+    try { obj = JSON.parse(line); } catch (e) { obj = null; }  /* the first line after connecting can be half a line */
+    if (!obj || obj.present === undefined || !obj.t) continue;
+    data = obj;
+    lastLineAt = new Date().getTime();
+    fails = 0;
+    lastErr = "";
+    try { render(); } catch (e2) { say("Page problem: " + e2.message, true); }
+  }
+  if (ble.buf.length > 4000) ble.buf = "";
+}
+function onDrop() {
+  ble.up = false;
+  ble.q = [];
+  ble.writing = false;
+  fails = 3;
+  lastErr = "the Bluetooth link dropped";
+  showGate("Connection lost. Trying again.", "Reconnect now");
+  try { render(); } catch (e) { say("Page problem: " + e.message, true); }
+  scheduleRetry();
+}
+function scheduleRetry() {
+  clearTimeout(ble.timer);
+  if (!ble.want || ble.up || ble.connecting) return;
+  ble.tries++;
+  var wait = Math.min(1000 * ble.tries, 6000);
+  ble.timer = setTimeout(function () {
+    if (ble.up || ble.connecting || !ble.want) return;
+    openLink().then(function () {}, function () { scheduleRetry(); });
+  }, wait);
+}
+function openLink() {
+  ble.connecting = true;
+  showGate("Connecting. Keep the radar close.", "");
+  return ble.dev.gatt.connect()
+    .then(function (srv) { return srv.getPrimaryService(UUID_SVC); })
+    .then(function (svc) { return Promise.all([svc.getCharacteristic(UUID_TX), svc.getCharacteristic(UUID_RX)]); })
+    .then(function (c) {
+      ble.tx = c[0];
+      ble.rx = c[1];
+      ble.tx.addEventListener("characteristicvaluechanged", onChunk);
+      return ble.tx.startNotifications();
+    })
+    .then(function () {
+      ble.up = true;
+      ble.connecting = false;
+      ble.tries = 0;
+      ble.buf = "";
+      ble.firstAt = new Date().getTime();
+      lastLineAt = 0;
+      fails = 0;
+      lastErr = "";
+      showGate("", "");
+      sendLine("J");
+      try { render(); } catch (e) { say("Page problem: " + e.message, true); }
+    })
+    .catch(function (e) {
+      ble.connecting = false;
+      ble.up = false;
+      lastErr = e && e.message ? e.message : String(e);
+      throw e;
+    });
+}
+function pick() {
+  if (ble.connecting) return;
+  var why = whyNot();
+  if (why) { showGate(why, ""); return; }
+  showGate("Choose Room-Radar in the window that opens.", "");
+  navigator.bluetooth.requestDevice({
+    filters: [{ services: [UUID_SVC] }, { namePrefix: "Room-Radar" }],
+    optionalServices: [UUID_SVC]
+  }).then(function (d) {
+    if (ble.dev && ble.dev !== d) { try { ble.dev.removeEventListener("gattserverdisconnected", onDrop); } catch (e) {} }
+    ble.dev = d;
+    ble.want = true;
+    d.addEventListener("gattserverdisconnected", onDrop);
+    return openLink();
+  }).catch(function (e) {
+    showGate(explain(e), "Try again");
+    try { render(); } catch (e3) {}
+  });
+}
+/* Once a second: if the radar goes quiet, say so and ask it to speak. */
+function watch() {
+  if (!ble.up) return;
+  var now = new Date().getTime();
+  var last = lastLineAt || ble.firstAt;
+  if (now - last > 5000) {
+    fails = 3;
+    lastErr = "nothing heard from the radar for " + Math.round((now - last) / 1000) + " s";
+    sendLine("J");
+    try { render(); } catch (e) {}
+  }
+}
+function startUi() {
+  var why = whyNot();
+  if (why) showGate(why, "");
+  else showGate("Press the button, then choose Room-Radar in the window that opens.", "Connect by Bluetooth");
+  el("connect-btn").onclick = pick;
+  setInterval(watch, 1000);
+}
+
+el("pd-btn").onclick = function () { knobs.ready = true; knobs.pd = !knobs.pd; showKnobs(); postTune("pdist"); };
+el("mode-m").onclick = function () { knobs.ready = true; knobs.presence = false; showKnobs(); drawGauges(); postTune("presence"); };
+el("mode-p").onclick = function () { knobs.ready = true; knobs.presence = true; showKnobs(); drawGauges(); postTune("presence"); };
+el("reset-btn").onclick = function () {
+  var b = el("reset-btn");
+  b.textContent = "Resetting";
+  sendLine("R");
+  knobs.ready = false;
+  ble.pullAt = new Date().getTime() + 1000;
+  setTimeout(function () { b.textContent = "Reset to defaults"; }, 2000);
+};
+el("restart-btn").onclick = function () {
+  el("restart-btn").textContent = "Restarting, back in about 20 s";
+  knobs.ready = false;
+  sendLine("X");
+};
+say("Not connected yet", false);
+buildRows();
+showKnobs();
+drawGauges();
+startUi();
+
+</script>
+<div id="pageEnd"></div>
+</body>
+</html>
