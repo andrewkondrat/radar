@@ -101,6 +101,13 @@ setTimeout(function () {
   label { display: block; color: #8fa598; font-size: 13px; margin-top: 12px; }
   input[type="text"], input[type="password"] { width: 100%; margin-top: 6px; padding: 12px; border-radius: 12px; border: 1px solid #2d4a3a; background: #07110e; color: #f3fff7; font-size: 16px; }
 
+  .pinbox { display: none; position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 50; background: #07110e; align-items: center; justify-content: center; padding: 20px; }
+  .pinbox.on { display: flex; }
+  .pbox { width: 100%; max-width: 320px; text-align: center; }
+  .pbox h1 { margin-bottom: 18px; }
+  #ppin { text-align: center; font-size: 34px; letter-spacing: 0.4em; padding: 14px 8px; }
+  .note.bad { color: #ff8f8f; }
+
   @media (min-width: 820px) {
     .wrap { max-width: 1000px; display: grid; grid-template-columns: 440px 1fr; gap: 32px; align-items: start; }
     .top { padding-top: 20px; }
@@ -114,6 +121,14 @@ setTimeout(function () {
 </style>
 </head>
 <body>
+<div id="pinbox" class="pinbox">
+  <div class="pbox">
+    <h1>ROOM RADAR</h1>
+    <p id="pmsg" class="note">Type the 4-digit PIN</p>
+    <input id="ppin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off">
+    <button type="button" id="pbtn">Unlock</button>
+  </div>
+</div>
 <div class="wrap">
   <div class="top">
     <header>
@@ -162,6 +177,7 @@ setTimeout(function () {
       <p id="c-other" class="ck"></p>
       <p id="c-gap" class="ck"></p>
       <p id="c-build" class="ck"></p>
+      <p id="c-pin" class="ck"></p>
       <p id="c-ip" class="ck"></p>
       <p class="note">Distance is a guide. DFRobot says it is not calibrated.</p>
     </details>
@@ -175,7 +191,6 @@ setTimeout(function () {
 </div>
 
 <script>
-
 /* Same page as the radar's own, but it reads the radar over Bluetooth.
    If anything does go wrong, the message is shown on screen, not hidden. */
 var data = null, fails = 0, lastErr = "", smoothM = null, netSig = "", sensorMax = 25, dragging = false;
@@ -267,7 +282,8 @@ function pullKnobs() {
 var UUID_SVC = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 var UUID_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";  /* we write commands here */
 var UUID_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";  /* the radar sends a status line from here */
-var ble = { pullAt: 0, dev: null, rx: null, tx: null, up: false, want: false, connecting: false, buf: "", q: [], writing: false, tries: 0, timer: 0, firstAt: 0 };
+var ble = { pullAt: 0, dev: null, rx: null, tx: null, up: false, want: false, connecting: false, buf: "", q: [], writing: false, tries: 0, timer: 0, firstAt: 0,
+            authed: false, locked: false, left: 20, pinWait: false, sentLeft: 20, sentAt: 0, okPin: "", lastPin: "", autoSent: false, tried: false, keepMsg: false };
 var lastLineAt = 0;
 
 function enc(text) {
@@ -448,6 +464,7 @@ function sensorCheck() {
   gp.textContent = "Longest board pause: " + gs.toFixed(1) + " s (web " + (Number(c.gweb) / 1000).toFixed(1) +
                    ", wifi " + (Number(c.gwifi) / 1000).toFixed(1) + ", log " + (Number(c.glog) / 1000).toFixed(1) + ")";
   el("c-build").textContent = "Sketch build " + (c.build || "?") + ", bad readings thrown away: " + (c.junk || 0);
+  el("c-pin").textContent = "Wrong PINs so far: Wi-Fi " + (data.badw || 0) + " of 20, Bluetooth " + (data.badb || 0) + " of 20";
   el("c-ip").textContent = "Bluetooth devices connected to the radar: " + (data.ble !== undefined ? data.ble : "?");
   var hz = Number(c.rate), rr = el("c-rate");
   if (pm) {
@@ -523,6 +540,98 @@ function render() {
   }
 }
 
+/* ---- PIN: the radar sends nothing but a sign-in line until the right PIN is written ---- */
+function pinSay(t, bad) { var m = el("pmsg"); m.textContent = t; m.className = "note" + (bad ? " bad" : ""); }
+function triesWord(n) { return n + (n === 1 ? " try" : " tries"); }
+function pinOpen(msg, bad) {
+  el("pinbox").className = "pinbox on";
+  el("ppin").style.display = "";
+  el("pbtn").style.display = "";
+  pinSay(msg, bad);
+}
+function pinClose() { el("pinbox").className = "pinbox"; }
+function pinLocked() {
+  ble.locked = true;
+  ble.want = false;
+  ble.authed = false;
+  ble.pinWait = false;
+  ble.okPin = "";
+  ble.lastPin = "";
+  clearTimeout(ble.timer);
+  pinOpen("Locked. Too many wrong PINs, so Bluetooth on the radar is shut. Unlock it with the USB cable, then reload this page.", true);
+  el("ppin").style.display = "none";
+  el("pbtn").style.display = "none";
+}
+function pinSubmit(v) {
+  ble.pinWait = true;
+  ble.sentLeft = ble.left;
+  ble.sentAt = new Date().getTime();
+  sendLine("P " + v);
+}
+function pinGo() {
+  var v = el("ppin").value;
+  if (v.length !== 4 || ble.pinWait || ble.locked) return;
+  if (!ble.up) {
+    el("ppin").value = "";
+    pinSay("Not connected to the radar yet. Wait a moment, then type the PIN again.", true);
+    return;
+  }
+  ble.lastPin = v;
+  ble.autoSent = false;
+  ble.keepMsg = false;
+  pinSay("Checking...", false);
+  pinSubmit(v);
+}
+function wrongPin(left) {
+  var was = ble.autoSent;
+  ble.pinWait = false;
+  ble.okPin = "";
+  ble.lastPin = "";
+  ble.autoSent = false;
+  ble.keepMsg = true;
+  el("ppin").value = "";
+  pinOpen((was ? "The PIN this page remembered was not accepted. " : "Wrong PIN. ") + triesWord(left) + " left before Bluetooth locks. Type the PIN.", true);
+}
+function onAuth(o) {
+  if (typeof o.left === "number") ble.left = o.left;
+  if (o.auth === 1) {
+    ble.authed = true;
+    ble.pinWait = false;
+    ble.keepMsg = false;
+    ble.okPin = ble.lastPin || ble.okPin;
+    ble.lastPin = "";
+    ble.autoSent = false;
+    el("ppin").value = "";
+    pinClose();
+    lastLineAt = new Date().getTime();
+    fails = 0;
+    lastErr = "";
+    return;
+  }
+  if (ble.authed) {  /* the radar wants the PIN again: sign in again */
+    ble.authed = false;
+    ble.pinWait = false;
+  }
+  if (o.bad === 1 || (ble.pinWait && typeof o.left === "number" && o.left < ble.sentLeft)) { wrongPin(ble.left); return; }
+  if (ble.pinWait || ble.keepMsg) return;
+  if (ble.okPin && !ble.tried) {  /* after a dropped link: one automatic try with the PIN that worked */
+    ble.tried = true;
+    ble.autoSent = true;
+    ble.lastPin = ble.okPin;
+    pinOpen("Signing in...", false);
+    pinSubmit(ble.okPin);
+    return;
+  }
+  pinOpen(ble.left < 20 ? triesWord(ble.left) + " left before Bluetooth locks. Type the PIN." : "Type the 4-digit PIN", ble.left < 20);
+}
+el("ppin").oninput = function () {
+  this.value = this.value.replace(/[^0-9]/g, "");
+  ble.keepMsg = false;
+  if (this.value.length === 4) pinGo();
+};
+el("ppin").onkeydown = function (ev) { if (ev && ev.keyCode === 13) pinGo(); };
+el("pbtn").onclick = pinGo;
+
 function showGate(msg, label) {
   var g = el("gate");
   g.hidden = !msg;
@@ -538,9 +647,9 @@ function whyNot() {
 }
 function explain(e) {
   var m = e && e.message ? e.message : String(e);
-  if (e && e.name === "NotFoundError") return "Nothing was chosen. Press the button and pick Room-Radar from the list. If it is not in the list, check the radar has power and is close.";
+  if (e && e.name === "NotFoundError") return "Nothing was chosen. Press the button and pick Room-Radar from the list. If it is not in the list, check the radar has power and is close. The radar talks to one Bluetooth device at a time, so close the handheld's Radar screen first. It also hides itself after too many wrong PINs.";
   if (e && e.name === "SecurityError") return "This page is not allowed to use Bluetooth here (" + m + "). Open it as a file in Chrome or Edge, or in the Bluefy app.";
-  return "Could not connect: " + m;
+  return "Could not connect: " + m + ". The radar talks to one Bluetooth device at a time, so close the handheld's Radar screen first.";
 }
 function onChunk(ev) {
   var v = ev.target.value, s = "";
@@ -553,6 +662,9 @@ function onChunk(ev) {
     if (line.charAt(0) !== "{") continue;
     var obj = null;
     try { obj = JSON.parse(line); } catch (e) { obj = null; }  /* the first line after connecting can be half a line */
+    if (obj && obj.locked) { pinLocked(); continue; }
+    if (obj && obj.auth !== undefined) { onAuth(obj); continue; }
+    if (!ble.authed) continue;  /* readings count only after the right PIN */
     if (!obj || obj.present === undefined || !obj.t) continue;
     data = obj;
     lastLineAt = new Date().getTime();
@@ -564,6 +676,9 @@ function onChunk(ev) {
 }
 function onDrop() {
   ble.up = false;
+  ble.authed = false;
+  ble.pinWait = false;
+  if (ble.locked) return;
   ble.q = [];
   ble.writing = false;
   fails = 3;
@@ -604,7 +719,13 @@ function openLink() {
       fails = 0;
       lastErr = "";
       showGate("", "");
-      sendLine("J");
+      ble.authed = false;
+      ble.pinWait = false;
+      ble.autoSent = false;
+      ble.tried = false;
+      ble.keepMsg = false;
+      el("ppin").value = "";
+      pinOpen("Type the 4-digit PIN", false);  /* the radar's own sign-in line follows within 1.5 s */
       try { render(); } catch (e) { say("Page problem: " + e.message, true); }
     })
     .catch(function (e) {
@@ -637,6 +758,16 @@ function pick() {
 function watch() {
   if (!ble.up) return;
   var now = new Date().getTime();
+  if (!ble.authed) {  /* before the PIN: only look at how long the radar takes to answer */
+    if (ble.pinWait && now - ble.sentAt > 5000) {
+      ble.pinWait = false;
+      ble.okPin = "";
+      ble.keepMsg = true;
+      el("ppin").value = "";
+      pinOpen("No answer from the radar. The try may have been counted. Type the PIN again.", true);
+    }
+    return;
+  }
   var last = lastLineAt || ble.firstAt;
   if (now - last > 5000) {
     fails = 3;
